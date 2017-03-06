@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 This code calculates the k and n spectra from an ATR-FTIR input spectrum.
-
-This code is based on Python 2.7.6, Numpy 1.10.4 and SciPy 0.17.0
-
+This code is based on Python 2.7.6, Numpy 1.10.4 and SciPy 0.17.0.
 Author: Zach Baird
 
 References:
@@ -144,7 +142,7 @@ def calibrate(nu_Z, n_Z, nu, Ab, nu_std, k_std, n_std, n_S=1.5, nRef=1):
     
     # Solving for effective number of reflections -------------------------------
     bnds = ((0.4, 1.0),)
-    result = differential_evolution(calib, bnds, args=(nu, Ab, Rs, excld), maxiter=200, tol=0.000000001, polish=False)
+    result = differential_evolution(calib, bnds, args=(nu, Ab, Rs, excld, nRef), maxiter=200, tol=0.000000001, polish=False)
     p = result.x
 
     return p[0]
