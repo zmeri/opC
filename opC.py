@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 This code calculates the k and n spectra from an ATR-FTIR input spectrum.
+
 This code is based on Python 2.7.6, Numpy 1.10.4 and SciPy 0.17.0.
+
 Author: Zach Baird
 
 References:
@@ -19,7 +21,7 @@ import math
 from scipy.optimize import differential_evolution
 from scipy import interpolate
 
-def KKtransTH(v, r, vve, rre):    
+def KKtransTH(v, r, vve=None, rre=None):    
     """ This function performs the Kramer-Kronig transformation to convert the 
     reflection spectrum to the phase shift spectrum (theta).
     v: an array containing the wavenumbers of the spectrum
@@ -27,9 +29,18 @@ def KKtransTH(v, r, vve, rre):
     vve: an array containing the wavenumbers of the extension that is added to 
     the spectrum
     rre: an array containing the reflection values of the extension that is added
-    to the spectrum
+    to the spectrum (if None, then the Rs spectrum is linearly extrapolated down
+    to 0 at a wavenumber of 0)
     """
-    num_ext = vve.shape[0]    
+    if rre is None:    
+        dnu = v[1] - v[0]
+        npts = math.floor(np.amin(v)/dnu)
+        vve = np.amin(v) - (npts-np.arange(npts))*dnu
+        rre = r[0]/np.amin(v)*vve
+        vve = np.expand_dims(vve, axis=1)
+        rre = np.expand_dims(rre, axis=1)
+
+    num_ext = vve.shape[0]
     vv = np.vstack((vve, v))
     rr = np.vstack((rre, r))
     theta = np.zeros_like(v)
@@ -41,7 +52,9 @@ def KKtransTH(v, r, vve, rre):
     vv2 = pow(vv,2)
     numer = vv * 0.5 * np.log(abs(rr)) * dvv
     
-    for h in range(vv.shape[0]-num_ext):
+    v_size = v.shape[0]
+    
+    for h in range(v_size):
         if (h+num_ext)%2 == 0:
             jnk1 = numer[1::2, :] / (vv2[1::2, :] - vv2[h+num_ext,0])
             theta[h,0] = np.sum(jnk1)
@@ -53,7 +66,7 @@ def KKtransTH(v, r, vve, rre):
     
     return theta
     
-def KKtrans(v, k, vve, kke, n_S=1.5):
+def KKtrans(v, k, vve=None, kke=None, n_S=1.5):
     """ This function performs the Kramer-Kronig transformation to convert the 
     imaginary spectrum (k) to the real spectrum (n).
     v: an array containing the wavenumbers of the spectrum
@@ -61,10 +74,19 @@ def KKtrans(v, k, vve, kke, n_S=1.5):
     vve: an array containing the wavenumbers of the extension that is added to 
     the spectrum
     kke: an array containing the k values of the extension that is added
-    to the spectrum
+    to the spectrum (if None, then the k spectrum is linearly extrapolated down
+    to 0 at a wavenumber of 0)
     n_S: the refractive index of the sample at a high wavenumber (default=1.5)
     """
-    num_ext = vve.shape[0]    
+    if kke is None:    
+        dnu = v[1] - v[0]
+        npts = math.floor(np.amin(v)/dnu)
+        vve = np.amin(v) - (npts-np.arange(npts))*dnu
+        kke = k[0]/np.amin(v)*vve
+        vve = np.expand_dims(vve, axis=1)
+        kke = np.expand_dims(kke, axis=1)
+    
+    num_ext = vve.shape[0] 
     vv = np.vstack((vve, v))
     kk = np.vstack((kke, k))
     nn = np.zeros_like(v)
@@ -77,7 +99,9 @@ def KKtrans(v, k, vve, kke, n_S=1.5):
     kk[np.where(kk < 0)] = 0.0
     numer = vv * kk * dvv
     
-    for h in range(v.shape[0]):
+    v_size = v.shape[0]
+    
+    for h in range(v_size):
         if (h+num_ext)%2 == 0:
             jnk1 = numer[1::2, 0] / (vv2[1::2, 0] - vv2[h+num_ext,0])
             nn[h,0] = np.sum(jnk1)
@@ -119,7 +143,7 @@ def calibrate(nu_Z, n_Z, nu, Ab, nu_std, k_std, n_std, n_S=1.5, nRef=1):
     Ab[np.where(Ab < 0)] = 0.0
      
     Ab = np.expand_dims(Ab, axis=1)
-    nu = np.expand_dims(nu, axis=1)
+    if len(nu.shape) < 2: nu = np.expand_dims(nu, axis=1)
     
         # interpolation to find the refractive index of ZnSe at the spectral wavelengths
     tck = interpolate.splrep(nu_Z, n_Z, s=0)
@@ -147,7 +171,7 @@ def calibrate(nu_Z, n_Z, nu, Ab, nu_std, k_std, n_std, n_S=1.5, nRef=1):
 
     return p[0]
 
-def op_constants(nu_Z, n_Z, nu, Ab, nu_ext, k_ext, efRef, n_S=1.5, nRef=1, tol=0.005, maxiter=20):
+def op_constants(nu_Z, n_Z, nu, Ab, efRef, n_S=1.5, nRef=1, nu_ext=None, k_ext=None, tol=0.0001, maxiter=20):
     """ op_constants calculates the optical constants of a material from its
     ATR infrared absorbance spectrum.
     nu_Z: an array containing the wavenumbers of the refractive index data for the ATR crystal material
@@ -169,39 +193,46 @@ def op_constants(nu_Z, n_Z, nu, Ab, nu_ext, k_ext, efRef, n_S=1.5, nRef=1, tol=0
     Ab[np.where(Ab < 0)] = 0.0
     
     Ab = np.expand_dims(Ab, axis=1)
-    nu = np.expand_dims(nu, axis=1)
+    if len(nu.shape) < 2: nu = np.expand_dims(nu, axis=1)
     
         # interpolation to find the refractive index of ZnSe at the spectral wavelengths
     tck = interpolate.splrep(nu_Z, n_Z, s=0)
     n_Z = interpolate.splev(nu, tck, der=0)
 
-    nu_min = np.amin(nu)
-    jnk2 = np.searchsorted(nu_ext, nu_min)
-    k_ext = k_ext[:jnk2]
-    nu_ext = nu_ext[:jnk2]
+    if nu_ext is not None:
+        nu_min = np.amin(nu)
+        jnk2 = np.searchsorted(nu_ext, nu_min)
+        k_ext = k_ext[:jnk2]
+        nu_ext = nu_ext[:jnk2]
     
-    nu_ext = np.expand_dims(nu_ext, axis=1)
-    k_ext = np.expand_dims(k_ext, axis=1) 
-    
-    n_ext = KKtrans(nu_ext, k_ext, np.array([[0.0]]), np.array([[0.0]]))
-    a = pow(n_ext,2) - pow(k_ext,2) - pow(2.38,2)*pow(math.sin(angI),2)
-    b = 2*n_ext*k_ext
-    A = np.sqrt((np.sqrt(pow(a,2)+pow(b,2))+a)/2.0)
-    B = np.sqrt((np.sqrt(pow(a,2)+pow(b,2))-a)/2.0)
-    Rs_ext = (pow(pow(A,2)+pow(B,2)-pow(2.38,2)*pow(math.cos(angI),2),2)+4*pow(B,2)*pow(2.38,2)*pow(math.cos(angI),2))/pow(pow(np.add(A,2.38*math.cos(angI)),2)+pow(B,2),2)   
+        nu_ext = np.expand_dims(nu_ext, axis=1)
+        k_ext = np.expand_dims(k_ext, axis=1) 
+            
+        n_ext = KKtrans(nu_ext, k_ext, np.array([[0.0]]), np.array([[0.0]]))
+        a = pow(n_ext,2) - pow(k_ext,2) - pow(2.38,2)*pow(math.sin(angI),2)
+        b = 2*n_ext*k_ext
+        A = np.sqrt((np.sqrt(pow(a,2)+pow(b,2))+a)/2.0)
+        B = np.sqrt((np.sqrt(pow(a,2)+pow(b,2))-a)/2.0)
+        Rs_ext = (pow(pow(A,2)+pow(B,2)-pow(2.38,2)*pow(math.cos(angI),2),2)+4*pow(B,2)*pow(2.38,2)*pow(math.cos(angI),2))/pow(pow(np.add(A,2.38*math.cos(angI)),2)+pow(B,2),2)   
 
     n_crit = n_Z*math.sin(angI) # calculation of critical sample refractive index
     
     # Calculating k and n spectra
     Rs = pow(np.sqrt(1+8*np.power(10,-Ab))/2.0-0.5,1/(nRef*efRef))
     Rs0 = np.copy(Rs)
-    th_p = KKtransTH(nu,Rs, nu_ext, Rs_ext)
+    if nu_ext is not None:
+        th_p = KKtransTH(nu,Rs, nu_ext, Rs_ext)
+    else:
+        th_p = KKtransTH(nu,Rs)
     dth = math.pi-2*np.arctan(np.sqrt(pow(n_Z,2)*pow(math.sin(angI),2)-pow(n_S,2))/(n_Z*math.cos(angI))) - th_p[-1,0]
     th = np.add(th_p,dth)
     ep1 = pow(n_Z,2)*(pow(math.sin(angI),2)+(pow(math.cos(angI),2)*(pow(1-Rs,2)-4*Rs*pow(np.sin(th),2)))/pow(1+Rs-2*np.sqrt(Rs)*np.cos(th),2))
     ep2 = pow(n_Z,2)*(4*pow(math.cos(angI),2)*np.sin(th)*(1-Rs)*np.sqrt(Rs))/pow(1+Rs-2*np.sqrt(Rs)*np.cos(th),2)
     k = np.sqrt(0.5*(np.sqrt(pow(ep1,2)+pow(ep2,2))-ep1))
-    n = KKtrans(nu, k, nu_ext, k_ext, n_S=n_S)
+    if nu_ext is not None:
+        n = KKtrans(nu, k, nu_ext, k_ext, n_S=n_S)
+    else:
+        n = KKtrans(nu, k, n_S=n_S)
     
     # Iterating until solution converges --------------------------------------
     ctr = 0
@@ -222,7 +253,10 @@ def op_constants(nu_Z, n_Z, nu, Ab, nu_ext, k_ext, efRef, n_S=1.5, nRef=1, tol=0
         ep1 = pow(n_Z,2)*(pow(math.sin(angI),2)+(pow(math.cos(angI),2)*(pow(1-Rs0,2)-4*Rs0*pow(np.sin(th),2)))/pow(1+Rs0-2*np.sqrt(Rs0)*np.cos(th),2))
         ep2 = pow(n_Z,2)*(4*pow(math.cos(angI),2)*np.sin(th)*(1-Rs0)*np.sqrt(Rs0))/pow(1+Rs0-2*np.sqrt(Rs0)*np.cos(th),2)
         k = np.sqrt(0.5*(np.sqrt(pow(ep1,2)+pow(ep2,2))-ep1))
-        n = KKtrans(nu, k, nu_ext, k_ext, n_S=n_S)
+        if nu_ext is not None:
+            n = KKtrans(nu, k, nu_ext, k_ext, n_S=n_S)
+        else:
+            n = KKtrans(nu, k, n_S=n_S)
         
         a = pow(n,2) - pow(k,2) - pow(n_Z,2)*pow(math.sin(angI),2)
         b = 2*n*k
